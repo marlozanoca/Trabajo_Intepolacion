@@ -1,0 +1,662 @@
+---
+title: "Interpolación espacial del carbono orgánico del suelo"
+author: "Adriana Carolina Romero Garizao; María Isabel Lozano Castaño"
+date: "2023-06-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Interpolación espacial del carbono orgánico del suelo (SOC) en los departamentos de Boyacá y Guaviaré
+
+## Introducción
+
+En este cuaderno ilustraremos dos técnicas de interpolación espacial: Distancia ponderada invertida (IDW) y Kriging ordinario (OK). Recordemos que IDW es una técnica determinista; mientras que OK es de probabilidad. Ambas técnicas son utilizadas para obtener información sobre una superficie contínua de SOC (Soil organic carbon) a 0 - 5 cm de muestras obtenidas de SoilGrids 250 m.
+
+
+## Configuración
+
+A continuación limpiaremos la memoria.
+
+```{r}
+rm(list=ls())
+```
+
+Previamente instalamos las librerías necesarias para ejecutar nuestro cuaderno.
+
+A continuación, cargaremos las librerías.
+
+```{r message=FALSE, warning=FALSE}
+library(sp)
+library(terra)
+library(sf)
+library(stars)
+library(gstat)
+library(automap)
+library(leaflet)
+library(leafem)
+library(ggplot2)
+library(dplyr)
+```
+
+
+## Lectura de los datos de entrada
+
+### Boyacá
+
+Necesitamos leer las bases de datos para poder imitar el mundo real. Por tanto, empezaremos a leer la capa SOC que descargamos usando la libreria **Terra**.
+
+```{r}
+archivo<-("F:\\GBI\\GB2\\Interpolacion\\SOC_0-5_Boyaca.tif")
+
+(soc<-rast(archivo))
+```
+
+Ahora, convertimos los datos SOC en porcentaje. Revise el factor de escala del SOC en el sitio web de SoilGrids, y escribalo aquí
+
+```{r}
+soc.perc<-soc/10
+```
+
+
+Ahora necesitamos reproyectar dicho CRS
+
+```{r}
+geog<-"+proj=longlat +datum=WGS84"
+
+(geog.soc<-project(soc.perc, geog))
+```
+
+
+
+Vamos a convertir la capa **SpatRaster** en un objeto **stars** para luego poderlo visualizar
+
+```{r}
+stars.soc<-st_as_stars(geog.soc)
+
+```
+
+```{r}
+m<-leaflet() %>%
+  addTiles() %>%
+  leafem::addGeoRaster(
+    stars.soc,
+    opacity = 0.8,
+    colorOptions = colorOptions(palette = c("orange", "yellow", "cyan", "green"), 
+                                  domain = 8:200)
+  )
+#
+m # Print the map
+```
+
+
+### Guaviare
+
+Se repiten exactamente los mismos pasos para poder leer y visualizar los datos
+
+```{r}
+archivo2<-("F:\\GBI\\GB2\\Interpolacion\\SOC_0_5_Guaviare.tif")
+
+(socg<-rast(archivo2))
+```
+Converción a porcentaje
+```{r}
+soc.percg<-socg/10
+```
+
+Reproyección
+
+```{r}
+
+(geogg.soc<-project(soc.percg, geog)) 
+```
+
+Vamos a convertir la capa **SpatRaster** en un objeto **stars** para luego poderlo visualizar
+
+```{r}
+stars.socg<-st_as_stars(geogg.soc)
+
+```
+
+```{r}
+m<-leaflet() %>%
+  addTiles() %>%
+  leafem::addGeoRaster(
+    stars.socg,
+    opacity = 0.8,
+    colorOptions = colorOptions(palette = c("orange", "yellow", "cyan", "green"), 
+                                  domain = 8:100)
+  )
+#
+m # Print the map
+```
+
+## Muestreando el mundo
+
+### Boyacá
+
+Obtengamos una muestra de apróximadamente 500 lugares de los datos del mundo real para nuestro departamento, estas muestras tomadas de forma aleatoria
+
+```{r}
+set.seed(123456)
+
+# Muestreo aleatorio de 500 puntos
+
+(samples<-spatSample(geog.soc, 500, "random", as.points = TRUE))
+```
+
+Ahora, necesitamos convertir el **spatVector** en un objeto **simple feature**
+
+```{r}
+(muestras<-sf::st_as_sf(samples))
+```
+
+```{r}
+nmuestras<-na.omit(muestras)
+```
+
+
+Ahora visualizamos las muestras
+
+```{r}
+longit <- st_coordinates(muestras)[,1]
+latit <- st_coordinates(muestras)[,2]
+soc <- muestras$`SOC_0-5_Boyaca`
+
+
+id <-seq(1, 500, 1)
+
+sitios<-data.frame(id, longit, latit, soc)
+```
+
+Para que quede más límpia la tabla, retiraremos los datos que no existen
+
+```{r}
+sitios<-na.omit(sitios)
+head(sitios)
+```
+
+Ahora si, con esta nueva información vamos a visualizar nuevamente las muestras
+
+```{r}
+m<-leaflet() %>%
+  addTiles() %>%
+  leafem::addGeoRaster(
+    stars.soc,
+    opacity = 0.7,
+    colorOptions = colorOptions(palette = c("orange","yellow","cyan","green"),
+                                domain = 8:130)
+  ) %>%
+  addMarkers(lng = sitios$longit, lat = sitios$latit, popup = sitios$soc1, clusterOptions = markerClusterOptions())
+m
+```
+
+
+### Guaviare
+
+Se repiten exactamente los mismos pasos para poder muestrear los datos del Guaviare
+
+```{r}
+set.seed(123456)
+
+# Muestreo aleatorio de 500 puntos
+
+(samplesg<-spatSample(geogg.soc, 500, "random", as.points = TRUE))
+```
+
+Ahora, necesitamos convertir el **spatVector** en un objeto **simple feature**
+
+```{r}
+(muestrasg<-sf::st_as_sf(samplesg))
+```
+
+
+```{r}
+ngmuestras<-na.omit(muestrasg)
+```
+
+
+Ahora visualizamos las muestras
+
+```{r}
+longitg <- st_coordinates(muestrasg)[,1]
+latitg <- st_coordinates(muestrasg)[,2]
+socg<-muestrasg$SOC_0_5_Guaviare
+idg <-seq(1, 500, 1)
+
+sitiosg<-data.frame(id, longitg, latitg, socg)
+```
+
+Para que quede más límpia la tabla, retiraremos los datos que no existen
+
+```{r}
+sitiosg<-na.omit(sitiosg)
+head(sitiosg)
+```
+
+Ahora si, con esta nueva información vamos a visualizar nuevamente las muestras
+
+```{r}
+m<-leaflet() %>%
+  addTiles() %>%
+  leafem::addGeoRaster(
+    stars.socg,
+    opacity = 0.7,
+    colorOptions = colorOptions(palette = c("orange","yellow","cyan","green"),
+                                domain = 8:100)
+  ) %>%
+  addMarkers(lng = sitiosg$longitg, lat = sitiosg$latitg, popup = sitiosg$socg, clusterOptions = markerClusterOptions())
+m
+```
+
+## Interpolación
+
+
+#### Creación del objeto gstat
+
+Para crear un objeto gstat debemos utilizar una función que precisamente tiene el mismo nombre **gstat**
+
+Pero ¿Por qué se hace necesario esto? Porque el gstat contiene toda la información necesaria para poder llevar a cabo la interpolación espacial; es decir tiene
+
+- La definición del modelo
+- La calibración de los datos
+
+Esta función permite entender que tipo de modelo de interpolación queremos usar, en donde precisamente entran los dos modelos que tenemos como objetivo inicial aplicar
+
+¿Cómo podemos aplicar la función gstat? Bajo los siguientes tres parámetros:
+
+- Fórmula: La cual nos permitirá predecir con base en las variables dependientes e independientes
+- Datos: Los datos de calibración
+- Modelo: Particularmente el variograma
+
+Ahora si, empecemos a trabajar en los dos tipos de interpolación 
+
+### Interpolación IDW
+
+#### Boyacá
+
+
+Creamos el objeto **gstat**
+
+```{r}
+g1 <- gstat(formula = soc~ 1, data = nmuestras)
+
+```
+
+Ahora que ya tenemos definido nuestro modelo de interpolación g1 se puede usar la función de predecir para interpolar diferentes datos.
+Cabe resaltar que dicha función acepta:
+- Raster: Objetos start, como por ejemplo, modelos de elevación digital
+- Un modelo: Como el gstat que acabamos de crear
+
+Por otro lado, el raster puede servir para:
+- Especificar los lugares en donde queremos hacer las predicciones 
+- Especificar los valores de las covariables (Solo en kriging universal)
+
+De este modo creemos un objeto raster igual a 1, que ya sabemos que nos servirá de plantilla
+
+```{r}
+(rrr<-aggregate(geog.soc, 4))
+```
+
+Ahora, definimos nuevos valores
+
+```{r}
+values(rrr)<-1
+```
+
+y nuevos nombres
+
+```{r}
+names(rrr)<-"valor"
+```
+
+¿Cómo quedó rrr?
+
+```{r}
+rrr
+```
+Finalmente tenemos la plantilla raster para los datos que se obtengan a partir de la interpolación
+```{r}
+stars.rrr<-st_as_stars(rrr)
+```
+
+La siguiente expresión interpola los valores SOC de acuerdo con el modelo definido en el objeto g1 y los ubica en la plantilla definida en stars.rrr
+
+```{r}
+z1 <- predict(g1, stars.rrr)
+z1
+```
+Podemos renombrarlo como SOC
+
+```{r}
+z1 = z1["var1.pred",,]
+names(z1) = "soc"
+```
+
+Necesitamos una paleta de colores
+
+```{r}
+paleta <- colorNumeric(palette = c("orange", "yellow", "cyan", "green"), domain = 10:160, na.color = "transparent")
+```
+
+Ahora si podemos visualizar los resultados de nuestra interpolación en el siguiente mapa
+
+```{r}
+m <- leaflet() %>%
+  addTiles() %>%  
+  leafem:::addGeoRaster(
+      z1,
+      opacity = 0.7,                
+      colorOptions = colorOptions(palette = c("orange", "yellow", "cyan", "green"), 
+                                  domain = 11:100)
+    ) %>%
+  addMarkers(lng=sitios$longit,lat=sitios$latit, popup=sitios$soc, clusterOptions = markerClusterOptions()) %>%
+    addLegend("bottomright", pal=paleta, values= z1$soc,
+    title = "IDW SOC interpolation [%]"
+    )
+m 
+```
+
+
+#### Guaviare
+
+
+Creamos el objeto **gstat**
+
+```{r}
+g1g <- gstat(formula = socg~ 1, data = ngmuestras)
+
+```
+
+Creamos la plantilla
+
+```{r}
+(ggg<-aggregate(geogg.soc, 4))
+```
+
+Ahora, definimos nuevos valores
+
+```{r}
+values(ggg)<-1
+```
+
+y nuevos nombres
+
+```{r}
+names(ggg)<-"valor"
+```
+
+¿Cómo quedó ggg?
+
+```{r}
+ggg
+```
+Finalmente tenemos la plantilla raster para los datos que se obtengan a partir de la interpolación
+```{r}
+stars.ggg<-st_as_stars(ggg)
+```
+
+La siguiente expresión interpola los valores SOC de acuerdo con el modelo definido en el objeto g1 y los ubica en la plantilla definida en stars.ggg
+
+```{r}
+z1g <- predict(g1g, stars.ggg)
+z1g
+```
+Podemos renombrarlo como SOC
+
+```{r}
+z1g = z1g["var1.pred",,]
+names(z1g) = "soc"
+```
+
+Necesitamos una paleta de colores
+
+```{r}
+paleta <- colorNumeric(palette = c("orange", "yellow", "cyan", "green"), domain = 10:100, na.color = "transparent")
+```
+
+Ahora si podemos visualizar los resultados de nuestra interpolación en el siguiente mapa
+
+```{r}
+m <- leaflet() %>%
+  addTiles() %>%  
+  leafem:::addGeoRaster(
+      z1g,
+      opacity = 0.7,                
+      colorOptions = colorOptions(palette = c("orange", "yellow", "cyan", "green"), 
+                                  domain = 11:70)
+    ) %>%
+  addMarkers(lng=sitiosg$longit,lat=sitiosg$latit, popup=sitiosg$soc, clusterOptions = markerClusterOptions()) %>%
+    addLegend("bottomright", pal=paleta, values= z1g$soc,
+    title = "IDW SOC interpolation [%]"
+    )
+m 
+```
+
+
+### Interpolación OK (Ordinary Kriging)
+
+#### Boyacá
+
+En este caso se requiere del uso de un modelo de variograma. Este modelo es una manera objetiva de cuantificar el patrón de autocorrelación en los datos, en donde asigna pesos acordes cuando se están haciendo las predicciones.
+
+Como primer paso, podemos calcular y examinar un variograma empírico usando dicho función en R.
+La función requiere de dos argumentos:
+- Fórmula: Especifíca la variable dependiente y las covariables, como en gstat
+- Datos: La capa de puntos con la variable depediente y las covariables 
+
+Llevemos a cabo este proceso con las 500 muestras que se obtuvieron para el departamento de Boyacá
+
+```{r}
+v_emp_ok<-variogram(soc ~ 1, data = nmuestras)
+```
+
+Ahora grafiquemos el variograma
+
+```{r}
+plot(v_emp_ok)
+```
+
+Hay muchas maneras de ajustar un variograma modelo a uno empírico. Usaremos la más sencilla que corresponde al ajuste automático, para lo cual se utiliza la función **autofitVariogram**, esto del paquete **automap**
+
+```{r}
+v_mod_ok<-autofitVariogram(soc ~ 1, as(muestras, "Spatial"))
+```
+
+Como se mencionaba anteriormente, la función elige el modelo que mejor se ajuste. 
+Cabe resaltar que tuvimos que convertir las muestras a **SpatialPintsDataFrame** puesto que la función usada no es compatible objetos sf
+
+Ahora si, revisemos el modelo obtenido:
+
+```{r}
+plot(v_mod_ok)
+```
+
+El objeto resultante de hecho es una lista con muchos componentes, incluyendo el variograma empírico y ajustado. El componente $var_model del objeto resultante, contiene al modelo actual, lo podemos ver con el siguiente código
+
+```{r}
+v_mod_ok$var_model
+```
+
+Ahora, el modelo de variograma puede ser utilizado con la función gstat, y podemos continuar con la interpolación de Kriging ordinario
+
+```{r}
+g2 = gstat(formula = soc ~ 1, model = v_mod_ok$var_model, data = nmuestras)
+z2= predict(g2, stars.rrr)
+```
+
+Nuevamente, se subagrupan los valores predichos y se les renombra:
+
+```{r}
+z2 = z2["var1.pred",,]
+names(z2) = "soc"
+```
+
+Ahora observemos el siguiente mapa con los resultados:
+
+```{r}
+m <- leaflet() %>%
+  addTiles() %>%  
+  leafem:::addGeoRaster(
+      z2,
+      opacity = 0.7,                
+      colorOptions = colorOptions(palette = c("orange", "yellow", "cyan", "green"), 
+                                  domain = 11:100)
+    ) %>%
+  addMarkers(lng=sitios$longit,lat=sitios$latit, popup=sitios$soc, clusterOptions = markerClusterOptions()) %>%
+    addLegend("bottomright", pal = paleta, values= z2$soc,
+    title = "OK SOC interpolation [%]"
+    )
+m  # Print the map
+```
+
+#### Guaviare
+
+
+Variograma para las 500 muestras que se obtuvieron para el departamento del Guaviaré
+
+```{r}
+v_emp_ok_g<-variogram(socg ~ 1, data = ngmuestras)
+```
+
+Ahora grafiquemos el variograma
+
+```{r}
+plot(v_emp_ok_g)
+```
+
+Ajuste automático utilizando la función **autofitVariogram** del paquete **automap**
+
+```{r}
+v_mod_ok_g<-autofitVariogram(socg ~ 1, as(ngmuestras, "Spatial"))
+```
+
+
+Ahora si, revisemos el modelo obtenido:
+
+```{r}
+plot(v_mod_ok_g)
+```
+El objeto resultante de hecho es una lista con muchos componentes, incluyendo el variograma empírico y ajustado. El componente $var_model del objeto resultante, contiene al modelo actual, lo podemos ver con el siguiente código
+
+```{r}
+v_mod_ok_g$var_model
+```
+
+Ahora, el modelo de variograma puede ser utilizado con la función gstat, y podemos continuar con la interpolación de Kriging ordinario
+
+```{r}
+g2g = gstat(formula = socg ~ 1, model = v_mod_ok_g$var_model, data = ngmuestras)
+
+z2g= predict(g2g, stars.ggg)
+```
+
+Nuevamente, se subagrupan los valores predichos y se les renombra:
+
+```{r}
+z2g = z2g["var1.pred",,]
+names(z2g) = "soc"
+```
+
+Ahora observemos el siguiente mapa con los resultados:
+
+```{r}
+m <- leaflet() %>%
+  addTiles() %>%  
+  leafem:::addGeoRaster(
+      z2g,
+      opacity = 0.7,                
+      colorOptions = colorOptions(palette = c("orange", "yellow", "cyan", "green"), 
+                                  domain = 11:100)
+    ) %>%
+  addMarkers(lng=sitiosg$longit,lat=sitiosg$latit, popup=sitiosg$socg, clusterOptions = markerClusterOptions()) %>%
+    addLegend("bottomright", pal = paleta, values= z2g$soc,
+    title = "OK SOC interpolation [%]"
+    )
+m  # Print the map
+```
+
+## Evaluación de los datos obtenidos
+
+### Evaluación cualitativa
+
+#### Boyacá
+
+Otra vista de los resultados de la interpolación. 
+
+Primero procuramos la paleta de colores
+
+```{r}
+colores <- colorOptions(palette = c("orange", "yellow", "cyan", "green"), domain = 10:160, na.color = "transparent")
+```
+
+Ahora el mapa dinámico que nos permitirá hacer la comparación
+
+```{r}
+m <- leaflet() %>%
+  addTiles() %>%  
+  addGeoRaster(stars.soc, opacity = 0.8, colorOptions = colores, group="RealWorld") %>%
+  addGeoRaster(z1, colorOptions = colores, opacity = 0.8, group= "IDW")  %>%
+  addGeoRaster(z2, colorOptions = colores, opacity = 0.8, group= "OK")  %>%
+  # Add layers controls
+  addLayersControl(
+    overlayGroups = c("RealWorld", "IDW", "OK"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+    addLegend("bottomright", pal = paleta, values= z1$soc,
+    title = "Soil organic carbon [%]"
+)
+m  # Print the map
+```
+
+
+#### Guaviare
+
+Otra vista de los resultados de la interpolación. 
+
+Primero procuramos la paleta de colores
+
+```{r}
+colores <- colorOptions(palette = c("orange", "yellow", "cyan", "green"), domain = 10:100, na.color = "transparent")
+```
+
+Ahora el mapa dinámico que nos permitirá hacer la comparación
+
+```{r}
+colores <- colorOptions(palette = c("orange", "yellow", "cyan", "green"), domain = 10:130, na.color = "transparent")
+
+(mg <- leaflet() %>%
+  addTiles() %>%  
+  addGeoRaster(stars.socg, opacity = 0.8, colorOptions = colores, group="RealWorld") %>%
+  addGeoRaster(z1g, colorOptions = colores, opacity = 0.8, group= "IDW")  %>%
+  addGeoRaster(z2g, colorOptions = colores, opacity = 0.8, group= "OK")  %>%
+  # Add layers controls
+  addLayersControl(
+    overlayGroups = c("RealWorld", "IDW", "OK"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>% 
+    addLegend("bottomright", pal = paleta, values= z1g$soc,
+    title = "Soil organic carbon [%]"
+    ))
+```
+
+### Validación cruzada
+
+Si bien podemos dar un juicio de que tanto se parecen los datos reales a los datos obtenidos en los modelos, es necesario manejar una método objetivo que nos permita evaluar que tan precisa fue la interpolación.
+Dentro de todos los métodos existentes para llevar a cabo este proceso, se puede utilizar la validación cruzada que consiste de los siguientes pasos:
+- Se toma un punto de los datos de calibración
+- Se hace una estimación para ese punto
+- Se repite para todos los puntos. Al final, lo que se obtiene es una tabla con el valor observado y el que se estimó  para todos los puntos
+Para lo anterior, se puede utilizar la función **gstat.cv**, la cual acepta objetos gstat
+Comencemos esta validación con el modelo IDW
+
+
+
+
+
+
+<https://rpubs.com/ials2un/soc_interp>
+
+**Nota:** De aquí saqué la información del raster de Boyacá <https://www.isric.org/web-coverage-services-wcs>
